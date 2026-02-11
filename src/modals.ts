@@ -7,6 +7,9 @@ import {
   DEFAULT_TERMINAL_OPTIONS,
   PROFILE_PRESETS,
   PROFILE_PRESET_ORDERED_KEYS,
+  WEZTERM_STYLE_FONT_FAMILY,
+  WEZTERM_STYLE_TERMINAL_OPTIONS,
+  WEZTERM_STYLE_THEME,
 } from "./terminal/profile-presets.js";
 import {
   DISABLED_TOOLTIP,
@@ -44,6 +47,7 @@ import { constant, identity, noop } from "lodash-es";
 import { BUNDLE } from "./import.js";
 import type { DeepWritable } from "ts-essentials";
 import { PROFILE_PROPERTIES } from "./terminal/profile-properties.js";
+import { RightClickActionAddon } from "./terminal/emulator-addons.js";
 import { Pseudoterminal } from "./terminal/pseudoterminal.js";
 
 import SemVer from "semver/classes/semver.js";
@@ -606,6 +610,67 @@ export class ProfileModal extends Modal {
       } = this,
       profile = data,
       { value: i18n } = context.language;
+    const profileThemePresetOptions = [
+      "weztermDark",
+      "followObsidian",
+      "custom",
+    ] as const;
+    const followsWeztermTheme = (): boolean => {
+      const theme = profile.terminalOptions.theme;
+      if (!theme) {
+        return false;
+      }
+      const theme0 = theme as Record<string, unknown>;
+      return Object.entries(WEZTERM_STYLE_THEME).every(
+        ([key, value]) => theme0[key] === value,
+      );
+    };
+    const currentThemePreset =
+      (): (typeof profileThemePresetOptions)[number] => {
+        if (profile.followTheme) {
+          return "followObsidian";
+        }
+        if (followsWeztermTheme()) {
+          return "weztermDark";
+        }
+        return "custom";
+      };
+    const applyWeztermLook = (forceDefaults = false): void => {
+      profile.followTheme = false;
+      profile.restoreHistory = true;
+      profile.rightClickAction = "copyPaste";
+      profile.terminalOptions.theme = cloneAsWritable(WEZTERM_STYLE_THEME);
+      if (forceDefaults || profile.terminalOptions.fontFamily === void 0) {
+        profile.terminalOptions.fontFamily = WEZTERM_STYLE_FONT_FAMILY;
+      }
+      if (forceDefaults || profile.terminalOptions.fontSize === void 0) {
+        profile.terminalOptions.fontSize =
+          WEZTERM_STYLE_TERMINAL_OPTIONS.fontSize;
+      }
+      if (forceDefaults || profile.terminalOptions.lineHeight === void 0) {
+        profile.terminalOptions.lineHeight =
+          WEZTERM_STYLE_TERMINAL_OPTIONS.lineHeight;
+      }
+      if (forceDefaults || profile.terminalOptions.scrollback === void 0) {
+        profile.terminalOptions.scrollback =
+          WEZTERM_STYLE_TERMINAL_OPTIONS.scrollback;
+      }
+      if (forceDefaults || profile.terminalOptions.cursorBlink === void 0) {
+        profile.terminalOptions.cursorBlink =
+          WEZTERM_STYLE_TERMINAL_OPTIONS.cursorBlink;
+      }
+      if (forceDefaults || profile.terminalOptions.cursorStyle === void 0) {
+        profile.terminalOptions.cursorStyle =
+          WEZTERM_STYLE_TERMINAL_OPTIONS.cursorStyle;
+      }
+      if (
+        forceDefaults ||
+        profile.terminalOptions.smoothScrollDuration === void 0
+      ) {
+        profile.terminalOptions.smoothScrollDuration =
+          WEZTERM_STYLE_TERMINAL_OPTIONS.smoothScrollDuration;
+      }
+    };
     ui.destroy();
     ui.newSetting(element, (setting) => {
       setting
@@ -725,6 +790,51 @@ export class ProfileModal extends Modal {
           );
       })
       .newSetting(element, (setting) => {
+        setting
+          .setName(i18n.t("components.profile.theme-preset"))
+          .setDesc(i18n.t("components.profile.theme-preset-description"))
+          .addDropdown(
+            linkSetting(
+              () => currentThemePreset(),
+              setTextToEnum(profileThemePresetOptions, (value) => {
+                switch (value) {
+                  case "followObsidian":
+                    profile.followTheme = true;
+                    break;
+                  case "weztermDark":
+                    applyWeztermLook(false);
+                    break;
+                }
+              }),
+              async () => this.postMutate(),
+              {
+                pre: (dropdown) => {
+                  dropdown.addOptions(
+                    Object.fromEntries(
+                      profileThemePresetOptions.map((option) => [
+                        option,
+                        i18n.t(
+                          `components.profile.theme-preset-options.${option}`,
+                        ),
+                      ]),
+                    ),
+                  );
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "paintbrush",
+              i18n.t("components.profile.reset"),
+              () => {
+                applyWeztermLook(true);
+              },
+              async () => this.postMutate(),
+            ),
+          );
+      })
+      .newSetting(element, (setting) => {
         const { settingEl } = setting;
         setting
           .setName(i18n.t("components.profile.restore-history"))
@@ -753,6 +863,45 @@ export class ProfileModal extends Modal {
               () => {
                 profile.restoreHistory =
                   Settings.Profile.DEFAULTS[profile.type].restoreHistory;
+              },
+              async () => this.postMutate(),
+            ),
+          );
+      })
+      .newSetting(element, (setting) => {
+        setting
+          .setName(i18n.t("components.profile.right-click-action"))
+          .setDesc(i18n.t("components.profile.right-click-action-description"))
+          .addDropdown(
+            linkSetting(
+              () => profile.rightClickAction,
+              setTextToEnum(RightClickActionAddon.ACTIONS, (value) => {
+                profile.rightClickAction = value;
+              }),
+              async () => this.postMutate(),
+              {
+                pre: (dropdown) => {
+                  dropdown.addOptions(
+                    Object.fromEntries(
+                      RightClickActionAddon.ACTIONS.map((action) => [
+                        action,
+                        i18n.t(
+                          `components.profile.right-click-action-options.${action}`,
+                        ),
+                      ]),
+                    ),
+                  );
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "mouse-pointer-click",
+              i18n.t("components.profile.reset"),
+              () => {
+                profile.rightClickAction =
+                  Settings.Profile.DEFAULTS[profile.type].rightClickAction;
               },
               async () => this.postMutate(),
             ),

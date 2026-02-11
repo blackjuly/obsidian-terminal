@@ -2,12 +2,81 @@
   overflow: clip;
   display: flex;
   flex-direction: column;
+  padding: var(--size-4-2);
+  background:
+    radial-gradient(
+      120% 120% at 100% 0%,
+      rgb(61 84 160 / 15%) 0%,
+      rgb(7 10 16 / 0%) 45%
+    ),
+    radial-gradient(
+      130% 100% at 0% 100%,
+      rgb(75 136 114 / 10%) 0%,
+      rgb(7 10 16 / 0%) 48%
+    ),
+    #070a10;
 }
 
 .terminal\:terminal {
   flex: 1;
   min-width: 0;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgb(148 163 184 / 22%);
+  border-radius: 12px;
+  background: linear-gradient(
+    180deg,
+    rgb(12 17 30 / 96%) 0%,
+    rgb(6 11 22 / 98%) 100%
+  );
+  box-shadow:
+    0 20px 45px rgb(2 6 23 / 48%),
+    inset 0 1px 0 rgb(226 232 240 / 12%);
+}
+
+.terminal\:terminal::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgb(122 162 247 / 12%),
+    rgb(167 139 250 / 38%),
+    rgb(20 184 166 / 12%)
+  );
+  pointer-events: none;
+  z-index: 2;
+}
+
+.terminal\:terminal .xterm {
+  height: 100%;
+  padding: 8px 10px 6px;
+}
+
+.terminal\:terminal .xterm .xterm-viewport {
+  background: transparent !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 45%) transparent;
+}
+
+.terminal\:terminal .xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.terminal\:terminal .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: rgb(148 163 184 / 42%);
+  background-clip: padding-box;
+}
+
+.terminal\:terminal .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(148 163 184 / 62%);
 }
 
 .is-phone

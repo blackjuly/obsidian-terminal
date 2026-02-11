@@ -5,6 +5,7 @@ import {
   createChildElement,
   createDocumentFragment,
   linkSetting,
+  Platform,
   registerSettingsCommands,
   resetButton,
   setTextToEnum,
@@ -13,6 +14,12 @@ import { ProfileListModal } from "./modals.js";
 import { Settings } from "./settings-data.js";
 import type { TerminalPlugin } from "./main.js";
 import type { loadDocumentations } from "./documentations.js";
+import {
+  WEZTERM_STYLE_FONT_FAMILY,
+  WEZTERM_STYLE_TERMINAL_OPTIONS,
+  WEZTERM_STYLE_THEME,
+} from "./terminal/profile-presets.js";
+import { RightClickActionAddon } from "./terminal/emulator-addons.js";
 import semverLt from "semver/functions/lt.js";
 import { size } from "lodash-es";
 
@@ -185,6 +192,557 @@ export class SettingTab extends AdvancedSettingTab<Settings> {
                     Settings.DEFAULT.profiles,
                   );
                 }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      });
+    const getDefaultIntegratedProfile =
+      (): Settings.Profile.Typed<"integrated"> | null =>
+        Settings.Profile.defaultOfType(
+          "integrated",
+          settings.value.profiles,
+          Platform.CURRENT,
+        );
+    const mutateDefaultIntegratedProfile = async (
+      mutator: (profile: Settings.Profile.Typed<"integrated">) => void,
+    ): Promise<void> => {
+      await settings.mutate((settingsM) => {
+        for (const profile0 of Object.values(settingsM.profiles)) {
+          if (
+            Settings.Profile.isType("integrated", profile0) &&
+            Settings.Profile.isCompatible(profile0, Platform.CURRENT)
+          ) {
+            mutator(profile0);
+            break;
+          }
+        }
+      });
+    };
+    const shellPresets = (() => {
+      switch (Platform.CURRENT) {
+        case "darwin":
+          return {
+            bash: { args: ["--login"], executable: "/bin/bash" },
+            pwsh: { args: ["-NoLogo"], executable: "pwsh" },
+            zsh: { args: ["--login"], executable: "/bin/zsh" },
+          };
+        case "linux":
+          return {
+            bash: { args: ["--login"], executable: "/bin/bash" },
+            pwsh: { args: ["-NoLogo"], executable: "pwsh" },
+            sh: { args: [], executable: "/bin/sh" },
+          };
+        case "win32":
+          return {
+            cmd: { args: [], executable: "cmd", useWin32Conhost: true },
+            gitBash: {
+              args: ["--login"],
+              executable: "C:\\Program Files\\Git\\bin\\bash.exe",
+              useWin32Conhost: true,
+            },
+            powershell: {
+              args: ["-NoLogo"],
+              executable: "powershell",
+              useWin32Conhost: true,
+            },
+            pwsh: {
+              args: ["-NoLogo"],
+              executable: "pwsh",
+              useWin32Conhost: true,
+            },
+            wsl: {
+              args: [],
+              executable: "C:\\Windows\\System32\\wsl.exe",
+              useWin32Conhost: true,
+            },
+          };
+      }
+    })();
+    const defaultShellPreset = (() => {
+      switch (Platform.CURRENT) {
+        case "darwin":
+          return "zsh";
+        case "linux":
+          return "bash";
+        case "win32":
+          return "powershell";
+      }
+    })();
+    const customShellOption = "__custom__";
+    const shellPresetLabels = Object.fromEntries(
+      Object.keys(shellPresets).map((key) => [
+        key,
+        i18n.t(`settings.embedded-terminal-shell-options.${key}`),
+      ]),
+    );
+    shellPresetLabels[customShellOption] = i18n.t(
+      "settings.embedded-terminal-shell-options.custom",
+    );
+    const arraysEqual = (
+      left: readonly string[],
+      right: readonly string[],
+    ): boolean =>
+      left.length === right.length &&
+      left.every((value, index) => value === right[index]);
+    const currentShellPreset = (): string => {
+      const profile = getDefaultIntegratedProfile();
+      if (!profile) {
+        return customShellOption;
+      }
+      for (const [key, value] of Object.entries(shellPresets)) {
+        if (
+          value.executable === profile.executable &&
+          arraysEqual(value.args, profile.args)
+        ) {
+          return key;
+        }
+      }
+      return customShellOption;
+    };
+    const followsWeztermTheme = (
+      theme: Settings.Profile.TerminalOptions["theme"] | undefined,
+    ): boolean => {
+      if (!theme) {
+        return false;
+      }
+      const theme0 = theme as Record<string, unknown>;
+      return Object.entries(WEZTERM_STYLE_THEME).every(
+        ([key, value]) => theme0[key] === value,
+      );
+    };
+    const themePresetOptions = ["weztermDark", "followObsidian", "custom"];
+    const currentThemePreset = (): string => {
+      const profile = getDefaultIntegratedProfile();
+      if (!profile) {
+        return "weztermDark";
+      }
+      if (profile.followTheme) {
+        return "followObsidian";
+      }
+      if (followsWeztermTheme(profile.terminalOptions.theme)) {
+        return "weztermDark";
+      }
+      return "custom";
+    };
+    const noIntegratedProfileDescription = (): string =>
+      i18n.t("settings.embedded-terminal-no-integrated-profile");
+    this.newSectionWidget(() =>
+      i18n.t("settings.embedded-terminal-experience"),
+    );
+    ui.newSetting(containerEl, (setting) => {
+      const profile = getDefaultIntegratedProfile();
+      setting
+        .setName(i18n.t("settings.embedded-terminal-target-profile"))
+        .setDesc(
+          profile
+            ? i18n.t("settings.embedded-terminal-target-profile-description", {
+                interpolation: { escapeValue: false },
+                name: Settings.Profile.name(profile) || profile.executable,
+              })
+            : noIntegratedProfileDescription(),
+        );
+    })
+      .newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.embedded-terminal-theme-preset"))
+          .setDesc(
+            getDefaultIntegratedProfile()
+              ? i18n.t("settings.embedded-terminal-theme-preset-description")
+              : noIntegratedProfileDescription(),
+          )
+          .addDropdown(
+            linkSetting(
+              () => currentThemePreset(),
+              setTextToEnum(themePresetOptions, async (value) => {
+                switch (value) {
+                  case "followObsidian":
+                    await mutateDefaultIntegratedProfile((profile) => {
+                      profile.followTheme = true;
+                    });
+                    break;
+                  case "weztermDark":
+                    await mutateDefaultIntegratedProfile((profile) => {
+                      profile.followTheme = false;
+                      profile.terminalOptions.theme =
+                        cloneAsWritable(WEZTERM_STYLE_THEME);
+                    });
+                    break;
+                }
+              }),
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.setDisabled(getDefaultIntegratedProfile() === null);
+                },
+                pre: (dropdown) => {
+                  dropdown.addOptions(
+                    Object.fromEntries(
+                      themePresetOptions.map((option) => [
+                        option,
+                        i18n.t(
+                          `settings.embedded-terminal-theme-preset-options.${option}`,
+                        ),
+                      ]),
+                    ),
+                  );
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "paintbrush",
+              i18n.t("settings.reset"),
+              async () =>
+                mutateDefaultIntegratedProfile((profile) => {
+                  profile.followTheme = false;
+                  profile.terminalOptions.theme =
+                    cloneAsWritable(WEZTERM_STYLE_THEME);
+                }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      })
+      .newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.embedded-terminal-font-family"))
+          .setDesc(
+            getDefaultIntegratedProfile()
+              ? i18n.t("settings.embedded-terminal-font-family-description")
+              : noIntegratedProfileDescription(),
+          )
+          .addText(
+            linkSetting(
+              () =>
+                getDefaultIntegratedProfile()?.terminalOptions.fontFamily ?? "",
+              (value) =>
+                mutateDefaultIntegratedProfile((profile) => {
+                  if (value) {
+                    profile.terminalOptions.fontFamily = value;
+                  } else {
+                    delete profile.terminalOptions.fontFamily;
+                  }
+                }),
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.setDisabled(getDefaultIntegratedProfile() === null);
+                  component.setPlaceholder(WEZTERM_STYLE_FONT_FAMILY);
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "type",
+              i18n.t("settings.reset"),
+              async () =>
+                mutateDefaultIntegratedProfile((profile) => {
+                  profile.terminalOptions.fontFamily =
+                    WEZTERM_STYLE_FONT_FAMILY;
+                }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      })
+      .newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.embedded-terminal-font-size"))
+          .setDesc(
+            getDefaultIntegratedProfile()
+              ? i18n.t("settings.embedded-terminal-font-size-description")
+              : noIntegratedProfileDescription(),
+          )
+          .addText(
+            linkSetting(
+              () =>
+                getDefaultIntegratedProfile()?.terminalOptions.fontSize?.toString() ??
+                "",
+              async (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) {
+                  await mutateDefaultIntegratedProfile((profile) => {
+                    delete profile.terminalOptions.fontSize;
+                  });
+                  return;
+                }
+                const parsed = Number(trimmed);
+                if (!isFinite(parsed)) {
+                  return;
+                }
+                await mutateDefaultIntegratedProfile((profile) => {
+                  profile.terminalOptions.fontSize = parsed;
+                });
+              },
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.inputEl.type = "number";
+                  component.setDisabled(getDefaultIntegratedProfile() === null);
+                  component.setPlaceholder(
+                    WEZTERM_STYLE_TERMINAL_OPTIONS.fontSize?.toString() ?? "",
+                  );
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "type",
+              i18n.t("settings.reset"),
+              async () =>
+                mutateDefaultIntegratedProfile((profile) => {
+                  profile.terminalOptions.fontSize =
+                    WEZTERM_STYLE_TERMINAL_OPTIONS.fontSize;
+                }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      })
+      .newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.embedded-terminal-line-height"))
+          .setDesc(
+            getDefaultIntegratedProfile()
+              ? i18n.t("settings.embedded-terminal-line-height-description")
+              : noIntegratedProfileDescription(),
+          )
+          .addText(
+            linkSetting(
+              () =>
+                getDefaultIntegratedProfile()?.terminalOptions.lineHeight?.toString() ??
+                "",
+              async (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) {
+                  await mutateDefaultIntegratedProfile((profile) => {
+                    delete profile.terminalOptions.lineHeight;
+                  });
+                  return;
+                }
+                const parsed = Number(trimmed);
+                if (!isFinite(parsed)) {
+                  return;
+                }
+                await mutateDefaultIntegratedProfile((profile) => {
+                  profile.terminalOptions.lineHeight = parsed;
+                });
+              },
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.inputEl.type = "number";
+                  component.setDisabled(getDefaultIntegratedProfile() === null);
+                  component.setPlaceholder(
+                    WEZTERM_STYLE_TERMINAL_OPTIONS.lineHeight?.toString() ?? "",
+                  );
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "type",
+              i18n.t("settings.reset"),
+              async () =>
+                mutateDefaultIntegratedProfile((profile) => {
+                  profile.terminalOptions.lineHeight =
+                    WEZTERM_STYLE_TERMINAL_OPTIONS.lineHeight;
+                }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      })
+      .newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.embedded-terminal-scrollback"))
+          .setDesc(
+            getDefaultIntegratedProfile()
+              ? i18n.t("settings.embedded-terminal-scrollback-description")
+              : noIntegratedProfileDescription(),
+          )
+          .addText(
+            linkSetting(
+              () =>
+                getDefaultIntegratedProfile()?.terminalOptions.scrollback?.toString() ??
+                "",
+              async (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) {
+                  await mutateDefaultIntegratedProfile((profile) => {
+                    delete profile.terminalOptions.scrollback;
+                  });
+                  return;
+                }
+                const parsed = Number(trimmed);
+                if (!isFinite(parsed)) {
+                  return;
+                }
+                await mutateDefaultIntegratedProfile((profile) => {
+                  profile.terminalOptions.scrollback = Math.max(
+                    Math.trunc(parsed),
+                    1,
+                  );
+                });
+              },
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.inputEl.type = "number";
+                  component.setDisabled(getDefaultIntegratedProfile() === null);
+                  component.setPlaceholder(
+                    WEZTERM_STYLE_TERMINAL_OPTIONS.scrollback?.toString() ?? "",
+                  );
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "history",
+              i18n.t("settings.reset"),
+              async () =>
+                mutateDefaultIntegratedProfile((profile) => {
+                  profile.terminalOptions.scrollback =
+                    WEZTERM_STYLE_TERMINAL_OPTIONS.scrollback;
+                }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      })
+      .newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.embedded-terminal-right-click-action"))
+          .setDesc(
+            getDefaultIntegratedProfile()
+              ? i18n.t(
+                  "settings.embedded-terminal-right-click-action-description",
+                )
+              : noIntegratedProfileDescription(),
+          )
+          .addDropdown(
+            linkSetting(
+              () =>
+                getDefaultIntegratedProfile()?.rightClickAction ?? "copyPaste",
+              setTextToEnum(RightClickActionAddon.ACTIONS, async (value) => {
+                await mutateDefaultIntegratedProfile((profile) => {
+                  profile.rightClickAction = value;
+                });
+              }),
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.setDisabled(getDefaultIntegratedProfile() === null);
+                },
+                pre: (dropdown) => {
+                  dropdown.addOptions(
+                    Object.fromEntries(
+                      RightClickActionAddon.ACTIONS.map((action) => [
+                        action,
+                        i18n.t(
+                          `settings.embedded-terminal-right-click-options.${action}`,
+                        ),
+                      ]),
+                    ),
+                  );
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "mouse-pointer-click",
+              i18n.t("settings.reset"),
+              async () =>
+                mutateDefaultIntegratedProfile((profile) => {
+                  profile.rightClickAction = "copyPaste";
+                }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      })
+      .newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.embedded-terminal-default-shell"))
+          .setDesc(
+            getDefaultIntegratedProfile()
+              ? i18n.t("settings.embedded-terminal-default-shell-description")
+              : noIntegratedProfileDescription(),
+          )
+          .addDropdown(
+            linkSetting(
+              () => currentShellPreset(),
+              async (value) => {
+                const selected =
+                  shellPresets[value as keyof typeof shellPresets];
+                if (!selected) {
+                  return;
+                }
+                await mutateDefaultIntegratedProfile((profile) => {
+                  profile.executable = selected.executable;
+                  profile.args = cloneAsWritable(selected.args);
+                  if (Platform.CURRENT === "win32") {
+                    profile.useWin32Conhost = selected.useWin32Conhost ?? false;
+                  }
+                });
+              },
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.setDisabled(getDefaultIntegratedProfile() === null);
+                },
+                pre: (dropdown) => {
+                  dropdown.addOptions(shellPresetLabels);
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "terminal-square",
+              i18n.t("settings.reset"),
+              async () => {
+                const selected =
+                  shellPresets[defaultShellPreset as keyof typeof shellPresets];
+                if (!selected) {
+                  return;
+                }
+                await mutateDefaultIntegratedProfile((profile) => {
+                  profile.executable = selected.executable;
+                  profile.args = cloneAsWritable(selected.args);
+                  if (Platform.CURRENT === "win32") {
+                    profile.useWin32Conhost = selected.useWin32Conhost ?? false;
+                  }
+                });
+              },
               () => {
                 this.postMutate();
               },

@@ -28,6 +28,7 @@ import {
   DEFAULT_WINDOWS_PTY,
   DEFAULT_WINDOW_OPTIONS,
   PROFILE_PRESETS,
+  WEZTERM_STYLE_TERMINAL_OPTIONS,
 } from "./terminal/profile-presets.js";
 import type {
   DeepReadonly,
@@ -305,7 +306,7 @@ export namespace Settings {
       integrated: {
         args: [],
         executable: "",
-        followTheme: true,
+        followTheme: false,
         name: "",
         platforms: {
           darwin: false,
@@ -313,10 +314,10 @@ export namespace Settings {
           win32: false,
         },
         pythonExecutable: "",
-        restoreHistory: false,
+        restoreHistory: true,
         rightClickAction: "copyPaste",
         successExitCodes: DEFAULT_SUCCESS_EXIT_CODES,
-        terminalOptions: DEFAULT_TERMINAL_OPTIONS,
+        terminalOptions: WEZTERM_STYLE_TERMINAL_OPTIONS,
         type: "integrated",
         useWin32Conhost: true,
       },

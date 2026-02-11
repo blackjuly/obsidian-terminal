@@ -44,6 +44,14 @@
       "platform-description-current": "Current $t(generic.platform)",
       "preset": "$t(generic.preset, capitalize)",
       "preset-placeholder": "($t(generic.custom, capitalize))",
+      "right-click-action": "Right click action",
+      "right-click-action-description": "Use right click for copy/paste to avoid accidental Ctrl+C interruption.",
+      "right-click-action-options": {
+        "copyPaste": "Copy selection / paste clipboard",
+        "default": "System default context menu",
+        "nothing": "Do nothing",
+        "paste": "Paste clipboard"
+      },
       "reset": "$t(generic.reset, capitalize)",
       "restore-history": "$t(generic.restore, capitalize) $t(generic.history)",
       "restore-history-description-HTML": "If $t(generic.enable_past-participle), $t(generic.history) is $t(generic.save_past-participle) to <code>.obsidian/workspace.json</code>.",
@@ -52,6 +60,13 @@
       "success-exit-codes-edit": "$t(generic.edit, capitalize)",
       "terminal-options": "$t(generic.terminal-option_other, capitalize)",
       "terminal-options-edit": "$t(generic.edit, capitalize)",
+      "theme-preset": "Theme preset",
+      "theme-preset-description": "Quickly switch between Obsidian-following theme and WezTerm-style dark preset.",
+      "theme-preset-options": {
+        "custom": "Custom (keep current values)",
+        "followObsidian": "Follow Obsidian theme",
+        "weztermDark": "WezTerm-style dark"
+      },
       "title": "{{name}}",
       "type": "$t(generic.type, capitalize)",
       "type-options": "$t(generic.profile-types.{{type}}, capitalize)"
@@ -299,6 +314,45 @@
     "instancing": "$t(generic.instance_gerund, capitalize)",
     "intercept-logging": "Intercept logging",
     "interface": "Interface",
+    "embedded-terminal-default-shell": "Default shell",
+    "embedded-terminal-default-shell-description": "Used by the current platform's default integrated profile.",
+    "embedded-terminal-experience": "Embedded terminal experience",
+    "embedded-terminal-font-family": "Font family",
+    "embedded-terminal-font-family-description": "Monospace stack for integrated terminal rendering.",
+    "embedded-terminal-font-size": "Font size",
+    "embedded-terminal-font-size-description": "Larger defaults improve readability in long AI sessions.",
+    "embedded-terminal-line-height": "Line height",
+    "embedded-terminal-line-height-description": "Compact values keep more context visible.",
+    "embedded-terminal-no-integrated-profile": "No compatible integrated profile found. Create one in Profiles first.",
+    "embedded-terminal-right-click-action": "Right click behavior",
+    "embedded-terminal-right-click-action-description": "Prefer copy/paste on right click for safer terminal interaction.",
+    "embedded-terminal-right-click-options": {
+      "copyPaste": "Copy selection / paste clipboard",
+      "default": "System default context menu",
+      "nothing": "Do nothing",
+      "paste": "Paste clipboard"
+    },
+    "embedded-terminal-scrollback": "Scrollback buffer",
+    "embedded-terminal-scrollback-description": "Increase for complete, traceable AI output history.",
+    "embedded-terminal-shell-options": {
+      "bash": "bash",
+      "cmd": "cmd",
+      "custom": "Custom executable (keep current)",
+      "gitBash": "Git Bash",
+      "powershell": "PowerShell",
+      "pwsh": "pwsh",
+      "sh": "sh",
+      "wsl": "WSL"
+    },
+    "embedded-terminal-target-profile": "Target integrated profile",
+    "embedded-terminal-target-profile-description": "Applies to: {{name}}",
+    "embedded-terminal-theme-preset": "Theme preset",
+    "embedded-terminal-theme-preset-description": "Switch between WezTerm-style dark and Obsidian-following theme.",
+    "embedded-terminal-theme-preset-options": {
+      "custom": "Custom (keep current values)",
+      "followObsidian": "Follow Obsidian theme",
+      "weztermDark": "WezTerm-style dark"
+    },
     "new-instance-behavior": "New $t(generic.instance) $t(generic.behavior)",
     "new-instance-behaviors": {
       "newHorizontalSplit": "New horizontal $t(generic.split)",

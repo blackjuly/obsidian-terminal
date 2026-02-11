@@ -22,7 +22,6 @@ import {
   SI_PREFIX_SCALE,
   acquireConditionally,
   activeSelf,
-  anyToError,
   asyncFunction,
   attachFunctionSourceMap,
   clear,
@@ -35,8 +34,6 @@ import {
   lazyInit,
   logFormat,
   multireplace,
-  notice2,
-  printError,
   promisePromise,
   remove,
   replaceAllRegex,
@@ -761,6 +758,24 @@ export interface ShellPseudoterminalArguments {
 }
 
 class WindowsPseudoterminal implements Pseudoterminal {
+  protected static readonly forceConhostExecutables = deepFreeze(
+    new Set([
+      "cmd",
+      "cmd.exe",
+      "powershell",
+      "powershell.exe",
+      "pwsh",
+      "pwsh.exe",
+      "wsl",
+      "wsl.exe",
+      "bash",
+      "bash.exe",
+      "sh",
+      "sh.exe",
+      "zsh",
+      "zsh.exe",
+    ]),
+  );
   public readonly shell;
   public readonly conhost;
   public readonly onExit;
@@ -776,14 +791,13 @@ class WindowsPseudoterminal implements Pseudoterminal {
       pythonExecutable,
     }: ShellPseudoterminalArguments,
   ) {
-    this.conhost = useWin32Conhost ?? false;
+    this.conhost =
+      WindowsPseudoterminal.shouldForceConhost(executable) ||
+      (useWin32Conhost ?? false);
     const { conhost } = this,
-      {
-        language: { value: i18n },
-        settings,
-      } = context,
+      shouldStartResizer = conhost && !isNil(pythonExecutable),
       resizerInitial = (async (): Promise<PipedChildProcess | null> => {
-        if (isNil(pythonExecutable)) {
+        if (!shouldStartResizer || isNil(pythonExecutable)) {
           return null;
         }
         const [childProcess2, process2, win32ResizerPy2] = await Promise.all([
@@ -806,29 +820,29 @@ class WindowsPseudoterminal implements Pseudoterminal {
           ret
             .once("exit", (code, signal) => {
               if (code !== 0) {
-                notice2(
-                  () =>
-                    i18n.t("errors.resizer-exited-unexpectedly", {
-                      code: code ?? signal,
-                      interpolation: { escapeValue: false },
-                    }),
-                  settings.value.errorNoticeTimeout,
-                  context,
-                );
+                self.console.warn("Terminal resizer exited unexpectedly", {
+                  code: code ?? signal,
+                });
               }
             })
             .stderr.on("data", (chunk: Buffer | string) => {
-              self.console.error(chunk.toString(DEFAULT_ENCODING));
+              self.console.debug(
+                "Terminal resizer stderr:",
+                chunk.toString(DEFAULT_ENCODING),
+              );
             });
         } catch (error) {
-          self.console.warn(error);
+          /* @__PURE__ */ self.console.debug(error);
         }
         return ret;
       })(),
       shell = (async (): Promise<
         readonly [PipedChildProcess, FileResult, typeof resizerInitial]
       > => {
-        const resizer = await resizerInitial.catch(() => null);
+        const resizer = await resizerInitial.catch((error: unknown) => {
+          /* @__PURE__ */ self.console.debug(error);
+          return null;
+        });
         try {
           const [childProcess2, fsPromises2, tmpPromise2] = await Promise.all([
               childProcess,
@@ -874,43 +888,35 @@ class WindowsPseudoterminal implements Pseudoterminal {
                   cwd,
                   shell: !conhost,
                   stdio: ["pipe", "pipe", "pipe"],
-                  windowsHide: !resizer,
+                  windowsHide: true,
                 }),
               );
             return [
               ret,
               inOutTmp,
-              resizerInitial
-                .then(async (resizer0) => {
-                  if (resizer0) {
-                    try {
-                      await writePromise(resizer0.stdin, `${ret.pid ?? -1}\n`);
-                      const watchdog = self.setInterval(() => {
-                        writePromise(resizer0.stdin, "\n").catch(
-                          (error: unknown) => {
-                            /* @__PURE__ */ self.console.debug(error);
-                          },
-                        );
-                      }, TERMINAL_RESIZER_WATCHDOG_WAIT * SI_PREFIX_SCALE);
-                      resizer0.once("exit", () => {
-                        self.clearInterval(watchdog);
-                      });
-                    } catch (error) {
-                      resizer0.kill();
-                      throw error;
-                    }
-                  }
-                  return resizer0;
-                })
-                .catch((error: unknown) => {
-                  const error0 = anyToError(error);
-                  printError(
-                    error0,
-                    () => i18n.t("errors.error-spawning-resizer"),
-                    context,
-                  );
-                  throw error0;
-                }),
+              (async (): Promise<PipedChildProcess | null> => {
+                if (!resizer) {
+                  return null;
+                }
+                try {
+                  await writePromise(resizer.stdin, `${ret.pid ?? -1}\n`);
+                  const watchdog = self.setInterval(() => {
+                    writePromise(resizer.stdin, "\n").catch(
+                      (error: unknown) => {
+                        /* @__PURE__ */ self.console.debug(error);
+                      },
+                    );
+                  }, TERMINAL_RESIZER_WATCHDOG_WAIT * SI_PREFIX_SCALE);
+                  resizer.once("exit", () => {
+                    self.clearInterval(watchdog);
+                  });
+                  return resizer;
+                } catch (error) {
+                  resizer.kill();
+                  /* @__PURE__ */ self.console.debug(error);
+                  return null;
+                }
+              })(),
             ];
           } catch (error) {
             await inOutTmp.cleanup();
@@ -984,6 +990,13 @@ class WindowsPseudoterminal implements Pseudoterminal {
      */
   }
 
+  protected static shouldForceConhost(executable: string): boolean {
+    const normalized = executable.replaceAll("/", "\\"),
+      sep = normalized.lastIndexOf("\\"),
+      name = (sep >= 0 ? normalized.slice(sep + 1) : normalized).toLowerCase();
+    return WindowsPseudoterminal.forceConhostExecutables.has(name);
+  }
+
   public async kill(): Promise<void> {
     if (!(await this.shell).kill()) {
       throw new Error(
@@ -993,22 +1006,21 @@ class WindowsPseudoterminal implements Pseudoterminal {
   }
 
   public async resize(columns: number, rows: number): Promise<void> {
-    const { resizer, context: plugin } = this,
+    const { resizer } = this,
       resizer0 = await resizer;
     if (!resizer0) {
-      throw new Error(plugin.language.value.t("errors.resizer-disabled"));
+      return;
     }
-    await writePromise(resizer0.stdin, `${columns}x${rows}\n`);
+    await writePromise(resizer0.stdin, `${columns}x${rows}\n`).catch(
+      (error: unknown) => {
+        /* @__PURE__ */ self.console.debug(error);
+      },
+    );
   }
 
   public async pipe(terminal: Terminal): Promise<void> {
-    let init = !this.conhost;
     const shell = await this.shell,
       reader = (chunk: Buffer | string): void => {
-        if (!init) {
-          init = true;
-          return;
-        }
         tWritePromise(terminal, chunk).catch((error: unknown) => {
           activeSelf(terminal.element).console.error(error);
         });
