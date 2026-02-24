@@ -1,5 +1,6 @@
 import {
   Functions,
+  Platform,
   type PluginContext,
   activeSelf,
   consumeEvent,
@@ -13,8 +14,13 @@ import { constant, isUndefined } from "lodash-es";
 import type { CanvasAddon } from "@xterm/addon-canvas";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { around } from "monkey-around";
-import { Menu } from "obsidian";
+import { FileSystemAdapter, Menu, TFile, normalizePath } from "obsidian";
 import { noop } from "ts-essentials";
+
+type DragAndDropPathEntry = {
+  readonly path: string;
+  readonly relative: boolean;
+};
 
 export class DisposerAddon extends Functions implements ITerminalAddon {
   public constructor(...args: readonly (() => void)[]) {
@@ -34,19 +40,18 @@ export class DisposerAddon extends Functions implements ITerminalAddon {
 export class DragAndDropAddon implements ITerminalAddon {
   readonly #disposer = new Functions({ async: false, settled: true });
 
-  public constructor(protected readonly element: HTMLElement) {}
+  public constructor(
+    protected readonly context: PluginContext,
+    protected readonly element: HTMLElement,
+  ) {}
 
   public activate(terminal: Terminal): void {
     const { element } = this,
       drop = (event: DragEvent): void => {
-        terminal.paste(
-          Array.from(event.dataTransfer?.files ?? [])
-            .map((file) => file.path)
-            .filter(isNonNil)
-            .map((path) => path.replace(replaceAllRegex('"'), '\\"'))
-            .map((path) => (path.includes(" ") ? `"${path}"` : path))
-            .join(" "),
-        );
+        const paths = this.#resolveDropPaths(event);
+        if (paths.length > 0) {
+          terminal.paste(this.#formatDropPaths(paths));
+        }
         consumeEvent(event);
       },
       dragover = consumeEvent;
@@ -64,6 +69,367 @@ export class DragAndDropAddon implements ITerminalAddon {
 
   public dispose(): void {
     this.#disposer.call();
+  }
+
+  #resolveDropPaths(event: DragEvent): DragAndDropPathEntry[] {
+    const transfer = event.dataTransfer;
+    if (!transfer) {
+      return [];
+    }
+    const fromFiles = this.#pathsFromFiles(transfer);
+    if (fromFiles.length > 0) {
+      return fromFiles;
+    }
+    return this.#pathsFromDataTransfer(transfer);
+  }
+
+  #pathsFromFiles(transfer: DataTransfer): DragAndDropPathEntry[] {
+    const files = Array.from(transfer.files ?? []).filter(isNonNil);
+    if (files.length === 0) {
+      return [];
+    }
+    const basePath = this.#vaultBasePath();
+    const entries: DragAndDropPathEntry[] = [];
+    for (const file of files) {
+      const entry = this.#entryFromFilePath(file.path, basePath);
+      if (entry) {
+        entries.push(entry);
+      }
+    }
+    return entries;
+  }
+
+  #pathsFromDataTransfer(transfer: DataTransfer): DragAndDropPathEntry[] {
+    const candidates = new Set<string>(),
+      types = Array.from(transfer.types ?? []);
+    for (const type of types) {
+      if (type === "Files" || type === "text/html") {
+        continue;
+      }
+      if (
+        type === "text/plain" ||
+        type === "text/uri-list" ||
+        type === "application/json" ||
+        type.includes("obsidian")
+      ) {
+        const data = transfer.getData(type);
+        if (data) {
+          this.#collectCandidates(data, type, candidates);
+        }
+      }
+    }
+    if (candidates.size === 0) {
+      return [];
+    }
+    const resolved = this.#resolveVaultCandidates(candidates);
+    return resolved.map((path) => ({ path, relative: true }));
+  }
+
+  #entryFromFilePath(
+    filePath: string,
+    basePath: string | null,
+  ): DragAndDropPathEntry | null {
+    if (!filePath) {
+      return null;
+    }
+    if (basePath) {
+      const relative = this.#relativeToVaultBase(filePath, basePath);
+      if (relative) {
+        const resolved = this.#resolveVaultPath(relative);
+        return {
+          path: resolved ?? relative,
+          relative: true,
+        };
+      }
+    }
+    return {
+      path: filePath,
+      relative: false,
+    };
+  }
+
+  #vaultBasePath(): string | null {
+    const { adapter } = this.context.app.vault;
+    if (!(adapter instanceof FileSystemAdapter)) {
+      return null;
+    }
+    const normalized = normalizePath(adapter.getBasePath());
+    return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
+  }
+
+  #relativeToVaultBase(path: string, basePath: string): string | null {
+    const normalized = normalizePath(path),
+      normalizedBase = normalizePath(basePath),
+      isWin = Platform.CURRENT === "win32",
+      comparePath = isWin ? normalized.toLowerCase() : normalized,
+      compareBase = isWin ? normalizedBase.toLowerCase() : normalizedBase,
+      prefix = `${compareBase}/`;
+    if (comparePath === compareBase) {
+      return null;
+    }
+    if (!comparePath.startsWith(prefix)) {
+      return null;
+    }
+    const relative = normalized.slice(prefix.length);
+    return relative ? relative : null;
+  }
+
+  #collectCandidates(
+    data: string,
+    type: string,
+    candidates: Set<string>,
+  ): void {
+    const trimmed = data.trim();
+    if (!trimmed) {
+      return;
+    }
+    this.#collectCandidatesFromJson(trimmed, candidates);
+    if (type === "text/uri-list") {
+      this.#collectCandidatesFromUriList(trimmed, candidates);
+      return;
+    }
+    this.#collectCandidatesFromText(trimmed, candidates);
+  }
+
+  #collectCandidatesFromJson(data: string, candidates: Set<string>): void {
+    const trimmed = data.trim();
+    if (
+      !(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
+      !(trimmed.startsWith("[") && trimmed.endsWith("]"))
+    ) {
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+    const visit = (value: unknown): void => {
+      if (typeof value === "string") {
+        candidates.add(value);
+        return;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          visit(item);
+        }
+        return;
+      }
+      if (!value || typeof value !== "object") {
+        return;
+      }
+      const record = value as Record<string, unknown>;
+      for (const [key, child] of Object.entries(record)) {
+        if (key === "path" || key === "file" || key === "files") {
+          visit(child);
+        }
+      }
+    };
+    visit(parsed);
+  }
+
+  #collectCandidatesFromUriList(data: string, candidates: Set<string>): void {
+    for (const line of data.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+      this.#collectCandidatesFromUri(trimmed, candidates);
+    }
+  }
+
+  #collectCandidatesFromUri(uri: string, candidates: Set<string>): void {
+    let parsed: URL;
+    try {
+      parsed = new URL(uri);
+    } catch {
+      return;
+    }
+    if (parsed.protocol === "obsidian:") {
+      const file =
+        parsed.searchParams.get("file") ?? parsed.searchParams.get("path");
+      if (file) {
+        candidates.add(file);
+      }
+      return;
+    }
+    if (parsed.protocol === "file:") {
+      const decoded = decodeURIComponent(parsed.pathname);
+      candidates.add(
+        Platform.CURRENT === "win32" && decoded.startsWith("/")
+          ? decoded.slice(1)
+          : decoded,
+      );
+    }
+  }
+
+  #collectCandidatesFromText(data: string, candidates: Set<string>): void {
+    const lines = data.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+      let matched = false;
+      if (trimmed.startsWith("obsidian://") || trimmed.startsWith("file://")) {
+        this.#collectCandidatesFromUri(trimmed, candidates);
+        matched = true;
+      }
+      const wikiRegex = /!?\[\[([^\]]+)\]\]/g;
+      let wikiMatch: RegExpExecArray | null = null;
+      while ((wikiMatch = wikiRegex.exec(trimmed)) !== null) {
+        matched = true;
+        const path = this.#cleanLinkPath(wikiMatch[1]);
+        if (path) {
+          candidates.add(path);
+        }
+      }
+      const mdRegex = /\[[^\]]*]\(([^)]+)\)/g;
+      let mdMatch: RegExpExecArray | null = null;
+      while ((mdMatch = mdRegex.exec(trimmed)) !== null) {
+        matched = true;
+        let target = mdMatch[1].trim();
+        const hasAngle = target.startsWith("<") && target.endsWith(">");
+        if (hasAngle) {
+          target = target.slice(1, -1);
+        } else {
+          target = target.split(/\s+/)[0] ?? "";
+        }
+        target = this.#cleanLinkPath(target);
+        if (target) {
+          candidates.add(target);
+        }
+      }
+      if (!matched && this.#looksLikePath(trimmed)) {
+        candidates.add(trimmed);
+      }
+    }
+  }
+
+  #looksLikePath(value: string): boolean {
+    return (
+      value.includes("/") ||
+      value.includes("\\") ||
+      /\.[A-Za-z0-9]{1,8}$/.test(value)
+    );
+  }
+
+  #cleanLinkPath(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const unquoted = this.#stripWrappingQuotes(trimmed),
+      withoutAlias = unquoted.split("|")[0] ?? "",
+      withoutHeading = withoutAlias.split("#")[0] ?? "",
+      withoutBlock = withoutHeading.split("^")[0] ?? "",
+      withoutPrefix = withoutBlock.replace(/^\.([\\/])/, "");
+    return withoutPrefix ? withoutPrefix.trim() : null;
+  }
+
+  #stripWrappingQuotes(value: string): string {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      return value.slice(1, -1);
+    }
+    return value;
+  }
+
+  #resolveVaultCandidates(candidates: Iterable<string>): string[] {
+    const resolved = new Set<string>();
+    for (const candidate of candidates) {
+      const path = this.#resolveVaultPath(candidate);
+      if (path) {
+        resolved.add(path);
+      }
+    }
+    return [...resolved];
+  }
+
+  #resolveVaultPath(candidate: string): string | null {
+    const { app } = this.context,
+      cleaned = this.#cleanLinkPath(candidate);
+    if (!cleaned) {
+      return null;
+    }
+    const fromUri = this.#pathFromUri(cleaned);
+    if (fromUri) {
+      return this.#resolveVaultPath(fromUri);
+    }
+    const normalized = normalizePath(cleaned);
+    if (this.#isAbsolutePath(normalized)) {
+      const basePath = this.#vaultBasePath();
+      if (!basePath) {
+        const withoutLeading = normalized.replace(/^\/+/, "");
+        return withoutLeading !== normalized
+          ? this.#resolveVaultPath(withoutLeading)
+          : null;
+      }
+      const relative = this.#relativeToVaultBase(normalized, basePath);
+      if (!relative) {
+        const withoutLeading = normalized.replace(/^\/+/, "");
+        return withoutLeading !== normalized
+          ? this.#resolveVaultPath(withoutLeading)
+          : null;
+      }
+      return this.#resolveVaultPath(relative);
+    }
+    const normalizedRelative = normalized.replace(/^\/+/, "");
+    const file = app.vault.getAbstractFileByPath(normalizedRelative);
+    if (file instanceof TFile) {
+      return file.path;
+    }
+    const sourcePath = app.workspace.getActiveFile()?.path ?? "",
+      linkpath = normalizedRelative.endsWith(".md")
+        ? normalizedRelative.slice(0, -3)
+        : normalizedRelative,
+      resolved =
+        app.metadataCache.getFirstLinkpathDest(normalizedRelative, sourcePath) ??
+        app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
+    return resolved?.path ?? null;
+  }
+
+  #pathFromUri(value: string): string | null {
+    if (!value.startsWith("obsidian://") && !value.startsWith("file://")) {
+      return null;
+    }
+    const candidates = new Set<string>();
+    this.#collectCandidatesFromUri(value, candidates);
+    return candidates.values().next().value ?? null;
+  }
+
+  #isAbsolutePath(value: string): boolean {
+    return (
+      /^[A-Za-z]:\//.test(value) || value.startsWith("/") || value.startsWith("//")
+    );
+  }
+
+  #formatDropPaths(entries: DragAndDropPathEntry[]): string {
+    return entries
+      .map((entry) => this.#formatDropPath(entry))
+      .filter(isNonNil)
+      .join(" ");
+  }
+
+  #formatDropPath(entry: DragAndDropPathEntry): string | null {
+    const { relative } = entry;
+    let path = entry.path;
+    if (!path) {
+      return null;
+    }
+    if (relative) {
+      const normalized = normalizePath(path).replace(/^(\.\/|\.\\|\/)+/, ""),
+        withPrefix =
+          Platform.CURRENT === "win32"
+            ? `.\\${normalized.replace(replaceAllRegex("/"), "\\")}`
+            : `./${normalized}`;
+      path = withPrefix;
+    }
+    const escaped = path.replace(replaceAllRegex('"'), '\\"');
+    return escaped.includes(" ") ? `"${escaped}"` : escaped;
   }
 }
 

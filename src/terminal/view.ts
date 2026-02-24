@@ -977,7 +977,7 @@ export class TerminalView extends ItemView {
                     this.find?.setResults("");
                   },
                 ),
-                dragAndDrop: new DragAndDropAddon(ele),
+                dragAndDrop: new DragAndDropAddon(context, ele),
                 followTheme: new FollowThemeAddon(context, ele, {
                   enabled(): boolean {
                     return profile.type === "invalid" || profile.followTheme;
