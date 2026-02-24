@@ -337,7 +337,9 @@
       "followObsidian": "Follow Obsidian theme",
       "weztermDark": "WezTerm-style dark"
     },
-    "new-instance-behavior": "新$t(generic.instance)$t(generic.behavior)",
+    "external-terminal": "外部终端（Windows）",
+    "win32-wezterm-executable": "WezTerm 可执行文件",
+    "win32-wezterm-executable-description": "填写后 Windows 外部终端优先使用 WezTerm；为空则从 PATH 中查找 `wezterm-gui.exe`。",    "new-instance-behavior": "新$t(generic.instance)$t(generic.behavior)",
     "new-instance-behaviors": {
       "newHorizontalSplit": "新水平$t(generic.split)",
       "newLeftSplit": "新左侧$t(generic.split)",

@@ -353,6 +353,9 @@
       "followObsidian": "Follow Obsidian theme",
       "weztermDark": "WezTerm-style dark"
     },
+    "external-terminal": "External terminal (Windows)",
+    "win32-wezterm-executable": "WezTerm executable",
+    "win32-wezterm-executable-description": "If set, external terminals on Windows prefer WezTerm. If empty, look for `wezterm-gui.exe` in PATH.",
     "new-instance-behavior": "New $t(generic.instance) $t(generic.behavior)",
     "new-instance-behaviors": {
       "newHorizontalSplit": "New horizontal $t(generic.split)",

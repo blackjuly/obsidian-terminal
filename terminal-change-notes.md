@@ -86,6 +86,48 @@
 - Theme preset
 - Right click action
 
+## WezTerm 外部终端（Windows）改动思路
+
+目标：在 Windows 上选择“外部终端”时优先唤起 WezTerm（不要求用户额外下载），并且默认打开 Obsidian 仓库目录。
+
+核心原则：
+
+- 只影响 Windows，其他平台逻辑不动。
+- 不强依赖 WezTerm：找不到就继续走原外部终端逻辑。
+- 不污染内置终端：只改外部终端启动路径选择。
+- 优先使用用户配置路径，其次自动探测系统常见安装路径，最后再尝试 PATH。
+- 统一工作目录为 vault 根目录，避免打开系统盘或插件目录。
+
+实现建议（文件级）：
+
+- `src/terminal/emulator.ts`
+  - 增加 WezTerm 可执行文件解析函数（`wezterm-gui.exe` / `wezterm.exe`）。
+  - Windows 外部终端时先尝试 WezTerm（配置路径优先），失败再回落原逻辑。
+  - 保持启动参数透明，不修改用户参数。
+- `src/settings-data.ts`
+  - 新增 `win32WezTermExecutable` 设置字段，默认空字符串。
+- `src/settings.ts`
+  - Windows 设置页增加 “Windows WezTerm executable path” 输入框。
+  - 仅用于外部终端 fallback，不影响内置终端。
+- `src/terminal/profile-properties.ts`
+  - 外部终端启动时传入 `win32WezTermExecutable` 配置。
+  - `cwd` 仅在未指定时使用 `vault` 根目录，避免空目录。
+  - 当命中 WezTerm 时忽略外部 profile 的 `args`，改为注入 `start --cwd <vault>`。
+- `assets/locales/en/translation.json`
+  - 增加上述设置项的英文文案。
+
+回退策略：
+
+- 若解析不到 WezTerm，外部终端仍按原逻辑唤起（如 `cmd` / `wt` / 其他）。
+- 不阻断外部终端启动，避免“找不到 WezTerm”造成无响应。
+
+测试清单（Windows）：
+
+- [ ] 外部终端默认打开 WezTerm（已安装情况下）。
+- [ ] 未安装 WezTerm 时，仍能打开系统默认外部终端。
+- [ ] 配置了 WezTerm 绝对路径时优先使用该路径。
+- [ ] 外部终端打开目录为当前 Obsidian vault 根目录。
+
 ## 验收清单（可逐条打勾）
 
 - [ ] 在 Obsidian 面板内启动终端时，不弹出外部窗口。

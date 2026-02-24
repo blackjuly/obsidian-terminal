@@ -394,8 +394,13 @@ export class TerminalView extends ItemView {
   protected set emulator(val: TerminalView.EMULATOR | null) {
     const { context: plugin } = this;
     this.#emulator0?.close(false).catch((error: unknown) => {
+      const error0 = anyToError(error);
+      if (error0.message.includes("_isDisposed")) {
+        /* @__PURE__ */ self.console.debug(error0);
+        return;
+      }
       printError(
-        anyToError(error),
+        error0,
         () => plugin.language.value.t("errors.error-killing-pseudoterminal"),
         plugin,
       );

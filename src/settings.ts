@@ -749,6 +749,45 @@ export class SettingTab extends AdvancedSettingTab<Settings> {
             ),
           );
       });
+    if (Platform.CURRENT === "win32") {
+      this.newSectionWidget(() => i18n.t("settings.external-terminal"));
+      ui.newSetting(containerEl, (setting) => {
+        setting
+          .setName(i18n.t("settings.win32-wezterm-executable"))
+          .setDesc(i18n.t("settings.win32-wezterm-executable-description"))
+          .addText(
+            linkSetting(
+              () => settings.value.win32WezTermExecutable,
+              async (value) =>
+                settings.mutate((settingsM) => {
+                  settingsM.win32WezTermExecutable = value.trim();
+                }),
+              () => {
+                this.postMutate();
+              },
+              {
+                post(component) {
+                  component.setPlaceholder("wezterm-gui.exe");
+                },
+              },
+            ),
+          )
+          .addExtraButton(
+            resetButton(
+              "terminal-square",
+              i18n.t("settings.reset"),
+              async () =>
+                settings.mutate((settingsM) => {
+                  settingsM.win32WezTermExecutable =
+                    Settings.DEFAULT.win32WezTermExecutable;
+                }),
+              () => {
+                this.postMutate();
+              },
+            ),
+          );
+      });
+    }
     this.newSectionWidget(() => i18n.t("settings.instancing"));
     ui.newSetting(containerEl, (setting) => {
       setting

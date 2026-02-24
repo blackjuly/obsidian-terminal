@@ -89,6 +89,7 @@ export interface Settings extends PluginContext.Settings {
   readonly exposeInternalModules: boolean;
   readonly interceptLogging: boolean;
   readonly preferredRenderer: Settings.PreferredRendererOption;
+  readonly win32WezTermExecutable: string;
 }
 export namespace Settings {
   export const optionals = deepFreeze([]) satisfies readonly (keyof Settings)[];
@@ -117,6 +118,7 @@ export namespace Settings {
     openChangelogOnUpdate: true,
     pinNewInstance: true,
     preferredRenderer: "webgl",
+    win32WezTermExecutable: "",
     profiles: Object.fromEntries(
       (
         [
@@ -1160,6 +1162,9 @@ export namespace Settings {
         "preferredRenderer",
         PREFERRED_RENDERER_OPTIONS,
       ),
+      win32WezTermExecutable: fixTyped(DEFAULT, unc, "win32WezTermExecutable", [
+        "string",
+      ]),
       profiles: ((): DeepWritable<Profiles> => {
         const defaults2 = DEFAULT.profiles,
           { profiles } = unc;
