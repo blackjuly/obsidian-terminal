@@ -992,7 +992,11 @@ export class TerminalView extends ItemView {
                   profile.type === "invalid"
                     ? void 0
                     : (): RightClickActionAddon.Action =>
-                        profile.rightClickAction,
+                        (profile.type === "developerConsole" ||
+                          profile.type === "integrated") &&
+                        profile.rightClickAction === "copyPaste"
+                          ? "default"
+                          : profile.rightClickAction,
                 ),
                 search: new SearchAddon(),
                 unicode11: new Unicode11Addon(),

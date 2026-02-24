@@ -13,6 +13,7 @@ import { constant, isUndefined } from "lodash-es";
 import type { CanvasAddon } from "@xterm/addon-canvas";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { around } from "monkey-around";
+import { Menu } from "obsidian";
 import { noop } from "ts-essentials";
 
 export class DisposerAddon extends Functions implements ITerminalAddon {
@@ -601,12 +602,33 @@ export class RightClickActionAddon implements ITerminalAddon {
     }
     const contextMenuListener = (ev: MouseEvent): void => {
       const action = this.action();
-      if (action === "default") {
-        return;
-      }
       (async (): Promise<void> => {
         try {
           switch (action) {
+            case "default":
+              Menu.forEvent(ev)
+                .addItem((item) =>
+                  item
+                    .setTitle("Copy")
+                    .setDisabled(!terminal.hasSelection())
+                    .onClick(async () => {
+                      if (!terminal.hasSelection()) {
+                        return;
+                      }
+                      await activeSelf(element).navigator.clipboard.writeText(
+                        terminal.getSelection(),
+                      );
+                    }),
+                )
+                .addItem((item) =>
+                  item.setTitle("Paste").onClick(async () => {
+                    terminal.paste(
+                      await activeSelf(element).navigator.clipboard.readText(),
+                    );
+                  }),
+                )
+                .showAtMouseEvent(ev);
+              break;
             case "nothing":
               // How to send right click to the terminal?
               break;
@@ -630,7 +652,9 @@ export class RightClickActionAddon implements ITerminalAddon {
           activeSelf(element).console.error(error);
         }
       })();
-      consumeEvent(ev);
+      if (action !== "nothing") {
+        consumeEvent(ev);
+      }
     };
     this.#disposer.push(() => {
       element.removeEventListener("contextmenu", contextMenuListener);

@@ -284,7 +284,7 @@ export namespace Settings {
         followTheme: true,
         name: "",
         restoreHistory: false,
-        rightClickAction: "copyPaste",
+        rightClickAction: "default",
         successExitCodes: DEFAULT_SUCCESS_EXIT_CODES,
         terminalOptions: DEFAULT_TERMINAL_OPTIONS,
         type: "developerConsole",
